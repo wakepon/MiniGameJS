@@ -7,7 +7,7 @@ export interface GameInfo {
 export const games: readonly GameInfo[] = [
   { id: 'game1', name: 'ゲーム1' },
   { id: 'game2', name: 'ゲーム2' },
-  { id: 'game3', name: 'ゲーム3' },
+  { id: 'game3', name: '領域占領' },
 ]
 
 export function getGameById(id: string): GameInfo | undefined {
