@@ -1,4 +1,4 @@
-import type { Game3State, Point, Rectangle } from './types'
+import type { Game3State, Point, Polygon } from './types'
 import { GAME_CONSTANTS } from './constants'
 
 const { COLORS } = GAME_CONSTANTS
@@ -11,10 +11,10 @@ export function renderGame(ctx: CanvasRenderingContext2D, state: Game3State): vo
   ctx.fillStyle = COLORS.BACKGROUND
   ctx.fillRect(0, 0, canvasSize.width, canvasSize.height)
 
-  // 占領済み領域の表示（外側を塗る）
+  // 占領済み領域の表示（ポリゴン外側を塗る）
   renderOccupiedArea(ctx, canvasSize, playArea)
 
-  // プレイエリア（未占領部分）
+  // プレイエリア（ポリゴン）
   renderPlayArea(ctx, playArea)
 
   // プレイヤーのパス（道）
@@ -41,30 +41,42 @@ export function renderGame(ctx: CanvasRenderingContext2D, state: Game3State): vo
 function renderOccupiedArea(
   ctx: CanvasRenderingContext2D,
   canvasSize: { width: number; height: number },
-  playArea: Rectangle
+  playArea: Polygon
 ): void {
+  // 全体を占領色で塗る
   ctx.fillStyle = COLORS.OCCUPIED
+  ctx.fillRect(0, 0, canvasSize.width, canvasSize.height)
 
-  // playArea以外を占領済みとして塗る
-  // 上部
-  ctx.fillRect(0, 0, canvasSize.width, playArea.y)
-  // 下部
-  ctx.fillRect(0, playArea.y + playArea.height, canvasSize.width, canvasSize.height - playArea.y - playArea.height)
-  // 左部
-  ctx.fillRect(0, playArea.y, playArea.x, playArea.height)
-  // 右部
-  ctx.fillRect(playArea.x + playArea.width, playArea.y, canvasSize.width - playArea.x - playArea.width, playArea.height)
+  // playAreaをくり抜く（背景色で塗り直す）
+  ctx.fillStyle = COLORS.BACKGROUND
+  drawPolygonPath(ctx, playArea)
+  ctx.fill()
 }
 
-// プレイエリアを描画
-function renderPlayArea(ctx: CanvasRenderingContext2D, playArea: Rectangle): void {
+// プレイエリアを描画（ポリゴン）
+function renderPlayArea(ctx: CanvasRenderingContext2D, playArea: Polygon): void {
   ctx.fillStyle = COLORS.PLAY_AREA
-  ctx.fillRect(playArea.x, playArea.y, playArea.width, playArea.height)
+  drawPolygonPath(ctx, playArea)
+  ctx.fill()
 
   // 境界線
   ctx.strokeStyle = COLORS.BOUNDARY
   ctx.lineWidth = 2
-  ctx.strokeRect(playArea.x, playArea.y, playArea.width, playArea.height)
+  drawPolygonPath(ctx, playArea)
+  ctx.stroke()
+}
+
+// ポリゴンのパスを描画
+function drawPolygonPath(ctx: CanvasRenderingContext2D, polygon: Polygon): void {
+  const v = polygon.vertices
+  if (v.length === 0) return
+
+  ctx.beginPath()
+  ctx.moveTo(v[0].x, v[0].y)
+  for (let i = 1; i < v.length; i++) {
+    ctx.lineTo(v[i].x, v[i].y)
+  }
+  ctx.closePath()
 }
 
 // パス（道）を描画

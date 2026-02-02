@@ -15,6 +15,10 @@ export const GAME_CONSTANTS = {
   // 道
   PATH_WIDTH: 3,
 
+  // 境界判定
+  BOUNDARY_TOLERANCE: 5,      // 辺上判定の許容誤差
+  MIN_PATH_LENGTH: 20,        // パスが有効とみなされる最小距離
+
   // 色
   COLORS: {
     BACKGROUND: '#1a1a2e',

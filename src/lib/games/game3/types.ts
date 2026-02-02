@@ -21,7 +21,25 @@ export interface Size {
   readonly height: number
 }
 
-// 方向（時計回りに定義）
+// ポリゴン型（時計回りで頂点を格納）
+export interface Polygon {
+  readonly vertices: readonly Point[]
+}
+
+// 辺（ポリゴンの辺情報用）
+export interface Edge {
+  readonly start: Point
+  readonly end: Point
+  readonly index: number
+}
+
+// プレイヤーの辺上位置
+export interface EdgePosition {
+  readonly edgeIndex: number  // 現在いる辺のインデックス
+  readonly t: number          // 辺上の位置（0.0〜1.0）
+}
+
+// 方向（時計回りに定義）- cutting時のみ使用
 export type Direction = 'up' | 'right' | 'down' | 'left'
 
 // プレイヤーの移動状態
@@ -30,7 +48,8 @@ export type PlayerMode = 'boundary' | 'cutting'
 // プレイヤー状態
 export interface PlayerState {
   readonly position: Point
-  readonly direction: Direction
+  readonly edgePosition: EdgePosition | null  // boundary時のみ使用
+  readonly direction: Direction               // cutting時のみ使用（4方向）
   readonly mode: PlayerMode
   readonly path: readonly Point[]  // cutting中の経路（道）
 }
@@ -55,9 +74,9 @@ export interface Game3State {
   readonly player: PlayerState
   readonly enemy: EnemyState
   readonly territory: Territory
-  readonly playArea: Rectangle   // プレイ可能エリア（未占領部分）
+  readonly playArea: Polygon      // ポリゴン形状のプレイエリア
   readonly canvasSize: Size
-  readonly initialArea: number   // 初期面積（占領率計算用）
+  readonly initialArea: number    // 初期面積（占領率計算用）
 }
 
 // アクション

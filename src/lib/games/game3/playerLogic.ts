@@ -1,162 +1,109 @@
-import type { PlayerState, Rectangle, Point, Direction } from './types'
+import type { PlayerState, Polygon, Point } from './types'
 import { GAME_CONSTANTS } from './constants'
 import {
+  distance,
   directionToVector,
   rotateDirectionClockwise,
-  getEdge,
-  getDirectionForEdge,
-  clampPointToRect,
-  distance,
+  getPolygonEdges,
+  getPointOnEdge,
+  getEdgeLength,
+  pointOnPolygonBoundary,
+  clampPointToPolygon,
+  getInwardNormal,
+  quantizeToFourDirections,
 } from './geometry'
+
+const { BOUNDARY_TOLERANCE } = GAME_CONSTANTS
 
 // パスに追加する最小距離
 const MIN_PATH_POINT_DISTANCE = 3
 
-// 初期プレイヤー状態を作成（左上から開始、右に移動）
-export function createInitialPlayer(playArea: Rectangle): PlayerState {
+// 初期プレイヤー状態を作成（最初の辺の開始点から）
+export function createInitialPlayer(playArea: Polygon): PlayerState {
   return {
-    position: { x: playArea.x, y: playArea.y },
+    position: playArea.vertices[0],
+    edgePosition: { edgeIndex: 0, t: 0 },
     direction: 'right',
     mode: 'boundary',
     path: [],
   }
 }
 
-// 外周移動時のプレイヤー更新
+// 外周移動時のプレイヤー更新（ポリゴンの辺に沿って移動）
 export function movePlayerOnBoundary(
   player: PlayerState,
-  playArea: Rectangle,
+  playArea: Polygon,
   deltaTime: number
 ): PlayerState {
-  const speed = GAME_CONSTANTS.PLAYER_SPEED * deltaTime
-  const vector = directionToVector(player.direction)
+  if (!player.edgePosition) return player
 
-  let newX = player.position.x + vector.x * speed
-  let newY = player.position.y + vector.y * speed
+  const edges = getPolygonEdges(playArea)
+  const currentEdge = edges[player.edgePosition.edgeIndex]
+  const edgeLength = getEdgeLength(currentEdge)
 
-  // 角に到達したら方向転換（時計回り）
-  const { needsTurn, position, direction } = handleCornerTurn(
-    { x: newX, y: newY },
-    player.direction,
-    playArea
-  )
-
-  if (needsTurn) {
+  if (edgeLength === 0) {
+    // 長さゼロの辺は次の辺へ
+    const nextEdgeIndex = (player.edgePosition.edgeIndex + 1) % edges.length
     return {
       ...player,
-      position,
-      direction,
+      edgePosition: { edgeIndex: nextEdgeIndex, t: 0 },
     }
   }
 
-  // 辺に沿って移動
-  const clampedPosition = clampToBoundary(
-    { x: newX, y: newY },
-    player.direction,
-    playArea
-  )
+  const speed = GAME_CONSTANTS.PLAYER_SPEED * deltaTime
+  const tIncrement = speed / edgeLength
+
+  let newT = player.edgePosition.t + tIncrement
+  let edgeIndex = player.edgePosition.edgeIndex
+
+  // 辺の端に到達したら次の辺へ（時計回り）
+  // ループ回数を制限して無限ループを防止
+  let loopGuard = edges.length + 1
+  while (newT >= 1 && loopGuard > 0) {
+    newT -= 1
+    edgeIndex = (edgeIndex + 1) % edges.length
+    loopGuard--
+  }
+
+  // ガードに引っかかった場合は現在位置を維持
+  if (loopGuard <= 0) {
+    newT = 0
+  }
+
+  const newEdge = edges[edgeIndex]
+  const newPosition = getPointOnEdge(newEdge, newT)
 
   return {
     ...player,
-    position: clampedPosition,
+    position: newPosition,
+    edgePosition: { edgeIndex, t: newT },
   }
-}
-
-// 角での方向転換処理
-function handleCornerTurn(
-  position: Point,
-  direction: Direction,
-  playArea: Rectangle
-): { needsTurn: boolean; position: Point; direction: Direction } {
-  const { x, y, width, height } = playArea
-  const right = x + width
-  const bottom = y + height
-
-  // 各角でのチェック
-  if (direction === 'right' && position.x >= right) {
-    return {
-      needsTurn: true,
-      position: { x: right, y: position.y },
-      direction: 'down',
-    }
-  }
-  if (direction === 'down' && position.y >= bottom) {
-    return {
-      needsTurn: true,
-      position: { x: position.x, y: bottom },
-      direction: 'left',
-    }
-  }
-  if (direction === 'left' && position.x <= x) {
-    return {
-      needsTurn: true,
-      position: { x, y: position.y },
-      direction: 'up',
-    }
-  }
-  if (direction === 'up' && position.y <= y) {
-    return {
-      needsTurn: true,
-      position: { x: position.x, y },
-      direction: 'right',
-    }
-  }
-
-  return { needsTurn: false, position, direction }
-}
-
-// 辺に沿うように位置をクランプ
-function clampToBoundary(
-  position: Point,
-  direction: Direction,
-  playArea: Rectangle
-): Point {
-  const { x, y, width, height } = playArea
-
-  // 移動方向に応じて、対応する辺の座標に固定
-  switch (direction) {
-    case 'right':
-    case 'left':
-      // 上辺または下辺を移動中
-      if (position.y <= y) {
-        return { x: position.x, y }
-      }
-      if (position.y >= y + height) {
-        return { x: position.x, y: y + height }
-      }
-      break
-    case 'up':
-    case 'down':
-      // 左辺または右辺を移動中
-      if (position.x <= x) {
-        return { x, y: position.y }
-      }
-      if (position.x >= x + width) {
-        return { x: x + width, y: position.y }
-      }
-      break
-  }
-
-  return position
 }
 
 // 切り込み開始
-export function startCutting(player: PlayerState): PlayerState {
-  // 外周から内側に向かう方向を決定（時計回りに90度）
-  const cuttingDirection = rotateDirectionClockwise(player.direction)
+export function startCutting(player: PlayerState, playArea: Polygon): PlayerState {
+  if (!player.edgePosition) return player
+
+  const edges = getPolygonEdges(playArea)
+  const currentEdge = edges[player.edgePosition.edgeIndex]
+
+  // 現在の辺からポリゴン内部への方向を取得し、4方向に量子化
+  const inwardNormal = getInwardNormal(currentEdge, playArea)
+  const cuttingDirection = quantizeToFourDirections(inwardNormal)
 
   return {
     ...player,
     mode: 'cutting',
     direction: cuttingDirection,
-    path: [player.position],  // 開始点を記録
+    edgePosition: null,
+    path: [player.position],
   }
 }
 
 // 切り込み中の移動
 export function movePlayerCutting(
   player: PlayerState,
-  playArea: Rectangle,
+  playArea: Polygon,
   deltaTime: number
 ): PlayerState {
   const speed = GAME_CONSTANTS.PLAYER_CUT_SPEED * deltaTime
@@ -167,8 +114,8 @@ export function movePlayerCutting(
     y: player.position.y + vector.y * speed,
   }
 
-  // 境界チェック
-  const clamped = clampPointToRect(newPosition, playArea)
+  // ポリゴン内にクランプ
+  const clamped = clampPointToPolygon(newPosition, playArea)
 
   // パスへの追加は一定距離以上移動した場合のみ
   const lastPoint = player.path[player.path.length - 1]
@@ -190,7 +137,7 @@ export function turnPlayerCutting(player: PlayerState): PlayerState {
 }
 
 // 外周に到達したかチェック
-export function hasReachedBoundary(player: PlayerState, playArea: Rectangle): boolean {
+export function hasReachedBoundary(player: PlayerState, playArea: Polygon): boolean {
   if (player.mode !== 'cutting' || player.path.length < 2) {
     return false
   }
@@ -198,33 +145,37 @@ export function hasReachedBoundary(player: PlayerState, playArea: Rectangle): bo
   const currentPos = player.position
   const startPos = player.path[0]
 
-  // 開始点とは異なる辺に到達したかチェック
-  const currentEdge = getEdge(currentPos, playArea, 3)
-  const startEdge = getEdge(startPos, playArea, 3)
-
-  if (currentEdge === null) {
+  // 開始位置から十分離れていなければ到達とみなさない（最低距離）
+  if (distance(currentPos, startPos) < GAME_CONSTANTS.MIN_PATH_LENGTH) {
     return false
   }
 
-  // 同じ辺上でも、十分離れていれば到達とみなす
-  if (currentEdge === startEdge) {
-    const dx = Math.abs(currentPos.x - startPos.x)
-    const dy = Math.abs(currentPos.y - startPos.y)
-    return dx > 10 || dy > 10
+  // 現在の位置と開始位置がポリゴンの辺上かチェック
+  const tolerance = GAME_CONSTANTS.BOUNDARY_TOLERANCE
+  const currentEdgePos = pointOnPolygonBoundary(currentPos, playArea, tolerance)
+  const startEdgePos = pointOnPolygonBoundary(startPos, playArea, tolerance)
+
+  if (!currentEdgePos) {
+    return false
   }
 
-  return true
+  // 異なる辺に到達した場合のみ有効
+  if (currentEdgePos.edgeIndex !== startEdgePos?.edgeIndex) {
+    return true
+  }
+
+  // 同じ辺の場合は到達とみなさない（同一辺分割は無効化したため）
+  return false
 }
 
 // 外周到達時、境界移動モードに戻る
-export function returnToBoundary(player: PlayerState, playArea: Rectangle): PlayerState {
-  const edge = getEdge(player.position, playArea, 5)
-  const newDirection = edge ? getDirectionForEdge(edge) : 'right'
+export function returnToBoundary(player: PlayerState, playArea: Polygon): PlayerState {
+  const edgePos = pointOnPolygonBoundary(player.position, playArea, BOUNDARY_TOLERANCE)
 
   return {
     ...player,
     mode: 'boundary',
-    direction: newDirection,
+    edgePosition: edgePos ?? { edgeIndex: 0, t: 0 },
     path: [],
   }
 }

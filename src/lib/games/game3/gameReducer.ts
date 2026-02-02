@@ -1,6 +1,6 @@
-import type { Game3State, Game3Action, Size, Rectangle } from './types'
+import type { Game3State, Game3Action, Size, Polygon } from './types'
 import { GAME_CONSTANTS } from './constants'
-import { calculateRectArea, clampPointToRect } from './geometry'
+import { calculatePolygonArea, clampPointToPolygon, pointInPolygon } from './geometry'
 import {
   createInitialPlayer,
   movePlayerOnBoundary,
@@ -17,21 +17,23 @@ import {
 } from './enemyLogic'
 import { createInitialTerritory, occupyTerritory } from './territoryLogic'
 
-// プレイエリアを計算
-function createPlayArea(canvasSize: Size): Rectangle {
+// 矩形からポリゴンを作成
+function createPlayArea(canvasSize: Size): Polygon {
   const padding = GAME_CONSTANTS.CANVAS_PADDING
   return {
-    x: padding,
-    y: padding,
-    width: canvasSize.width - padding * 2,
-    height: canvasSize.height - padding * 2,
+    vertices: [
+      { x: padding, y: padding },
+      { x: canvasSize.width - padding, y: padding },
+      { x: canvasSize.width - padding, y: canvasSize.height - padding },
+      { x: padding, y: canvasSize.height - padding },
+    ],
   }
 }
 
 // 初期状態を作成
 export function createInitialState(canvasSize: Size): Game3State {
   const playArea = createPlayArea(canvasSize)
-  const initialArea = calculateRectArea(playArea)
+  const initialArea = calculatePolygonArea(playArea)
 
   return {
     status: 'idle',
@@ -49,7 +51,7 @@ export function game3Reducer(state: Game3State, action: Game3Action): Game3State
   switch (action.type) {
     case 'START': {
       const playArea = createPlayArea(state.canvasSize)
-      const initialArea = calculateRectArea(playArea)
+      const initialArea = calculatePolygonArea(playArea)
 
       return {
         ...state,
@@ -92,9 +94,12 @@ export function game3Reducer(state: Game3State, action: Game3Action): Game3State
 
       // 領域占領判定: パスが外周に到達したか
       if (newPlayer.mode === 'cutting' && hasReachedBoundary(newPlayer, state.playArea)) {
+        // パスの終点を現在のプレイヤー位置で確定
+        const finalPath = [...newPlayer.path, newPlayer.position]
+
         const { newTerritory, newPlayArea } = occupyTerritory(
           state.territory,
-          newPlayer.path,
+          finalPath,
           state.playArea,
           newEnemy.position,
           state.initialArea
@@ -104,16 +109,10 @@ export function game3Reducer(state: Game3State, action: Game3Action): Game3State
         const playerOnBoundary = returnToBoundary(newPlayer, newPlayArea)
 
         // 敵の位置を新しいplayArea内にクランプ
-        const radius = GAME_CONSTANTS.ENEMY_RADIUS
-        const clampedEnemyPos = clampPointToRect(newEnemy.position, {
-          x: newPlayArea.x + radius,
-          y: newPlayArea.y + radius,
-          width: newPlayArea.width - radius * 2,
-          height: newPlayArea.height - radius * 2,
-        })
-        const adjustedEnemy = {
-          ...newEnemy,
-          position: clampedEnemyPos,
+        let adjustedEnemy = newEnemy
+        if (!pointInPolygon(newEnemy.position, newPlayArea)) {
+          const clampedPos = clampPointToPolygon(newEnemy.position, newPlayArea)
+          adjustedEnemy = { ...newEnemy, position: clampedPos }
         }
 
         return {
@@ -141,7 +140,7 @@ export function game3Reducer(state: Game3State, action: Game3Action): Game3State
       if (state.player.mode === 'boundary') {
         return {
           ...state,
-          player: startCutting(state.player),
+          player: startCutting(state.player, state.playArea),
         }
       }
 
